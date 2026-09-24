@@ -1,0 +1,15 @@
+name: GitHub to Azure
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Run tests/build here"
+      - name: Trigger Azure DevOps pipeline
+        run: |
+          az login --service-principal -u ${{ secrets.AZURE_CLIENT_ID }} -p ${{ secrets.AZURE_CLIENT_SECRET }} --tenant ${{ secrets.AZURE_TENANT_ID }}
+          az pipelines run --name "AGAPrjCICT-Pipeline" --project "AGA Assurance Collective Prj 1" --org "https://dev.azure.com/<your-org>"
