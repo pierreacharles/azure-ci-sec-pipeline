@@ -1,4 +1,13 @@
-name: GitHub to Azure
+# AUTHOR NAME: Pierre-Antoine Charles
+# DATE: Thursday 24-Sep-2026
+# SUBJECT: GitHub trigger for Azure CI security pipeline containing Docker and Kubernetes CD development.
+# ==========================================================================================
+
+# =====================
+# GITHUB-TRIGGER FOR AZ-CI-SEC-PIPELINE
+# =====================
+
+name: GitHub-IAM-Roles
 on:
   push:
     branches: [main]
