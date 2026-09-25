@@ -1,3 +1,11 @@
+# DATE: Friday 25-Sep-2026
+# SUBJECT: GitHub trigger for Azure CI security pipeline containing Docker and Kubernetes CD development.
+# ==========================================================================================
+
+# =====================
+# GITHUB-DEPLOY FOR AZ-CI-SEC-PIPELINE
+# =====================
+
 name: GitHub Action triggers Azure
 on:
   push:
