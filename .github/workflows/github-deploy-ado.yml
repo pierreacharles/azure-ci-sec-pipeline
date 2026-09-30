@@ -26,6 +26,6 @@ jobs:
           printf '%s\n' "$AZURE_DEVOPS_EXT_PAT" |
             az devops login --organization "$AZURE_DEVOPS_ORG"
           az pipelines run \
-            --name "AGAPrjCICT-Pipeline" \
+            --name "AGA-Prj-Repo-1" \
             --project "AGA Assurance Collective Prj 1" \
             --org "$AZURE_DEVOPS_ORG"
