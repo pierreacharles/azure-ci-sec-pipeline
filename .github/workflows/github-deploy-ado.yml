@@ -10,14 +10,22 @@ name: GitHub Action triggers Azure
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   trigger-azure:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Azure Pipeline
+        env:
+          AZURE_DEVOPS_EXT_PAT: ${{ secrets.AZURE_DEVOPS_EXT_PAT }}
+          AZURE_DEVOPS_ORG: https://dev.azure.com/DevOpsExpertOrg1
         run: |
+          : "${AZURE_DEVOPS_EXT_PAT:?Set the AZURE_DEVOPS_EXT_PAT GitHub Actions secret}"
+          az extension add --name azure-devops --only-show-errors
+          printf '%s\n' "$AZURE_DEVOPS_EXT_PAT" |
+            az devops login --organization "$AZURE_DEVOPS_ORG"
           az pipelines run \
             --name "AGAPrjCICT-Pipeline" \
             --project "AGA Assurance Collective Prj 1" \
-            --org "https://dev.azure.com/<org>"
+            --org "$AZURE_DEVOPS_ORG"
