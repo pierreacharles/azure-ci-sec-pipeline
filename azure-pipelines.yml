@@ -48,7 +48,7 @@ stages:
   - stage: DevOpsExpertStageA
     # Compile and run both Python entry points from ADO, or from GitHub when
     # this run was started by the GitHub repository resource trigger.
-    displayName: Validate and test Python sources
+    displayName: 'CI: Validate Python application'
     jobs:
       - job: PythonChecks
         displayName: Compile and run Python entry points
@@ -113,7 +113,7 @@ stages:
     # Ensure the selected checkout has all application and Docker inputs before
     # the more expensive image build and security scan.
     dependsOn: DevOpsExpertStageA
-    displayName: Validate Docker build context
+    displayName: 'CI: Verify Docker build inputs'
     jobs:
       - job: DockerContext
         displayName: Check required application and container files
@@ -141,7 +141,7 @@ stages:
     # HIGH/CRITICAL findings, and package the image for Snyk scanning.
     dependsOn:
       - DevOpsExpertStageB
-    displayName: 'CI: Build, test, scan, and package container'
+    displayName: 'CI: Build, test, and security-scan container'
     jobs:
       - job: BuildAndTestImage
         displayName: Build and verify hardened container
@@ -323,7 +323,7 @@ stages:
       - PublishContainer
       - AwsIdentityCheck
     condition: and(not(failed()), not(canceled()), ne(variables['Build.Reason'], 'ResourceTrigger'), eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(dependencies.PublishContainer.result, 'Succeeded'), in(dependencies.AwsIdentityCheck.result, 'Succeeded', 'Skipped'))
-    displayName: Push validated source to GitHub
+    displayName: 'CD: Synchronize validated source to GitHub'
     jobs:
       - job: jobG
         displayName: Commit and push source changes
