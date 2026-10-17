@@ -36,7 +36,7 @@ resources:
           - main
 
 # =====================
-# BUILD STAGE
+# CONTINUOUS INTEGRATION - VALIDATION
 # =====================
 stages:
   - stage: DevOpsExpertStageA
@@ -102,7 +102,7 @@ stages:
     # HIGH/CRITICAL findings, and optionally push images to Docker Hub.
     dependsOn:
       - DevOpsExpertStageB
-    displayName: Build, test, scan, and optionally publish Docker image
+    displayName: 'CI: Build, test, scan, and publish artifact and registry image'
     jobs:
       - job: BuildAndTestImage
         displayName: Build and verify hardened container
@@ -153,6 +153,19 @@ stages:
                 --ignore-unfixed \
                 "$(dockerImageName):$(Build.BuildId)"
             displayName: Scan image for high and critical vulnerabilities
+          - bash: |
+              set -euo pipefail
+              cat > "$(Build.ArtifactStagingDirectory)/release-manifest.json" <<EOF
+              {
+                "image": "$(dockerHubRepository)",
+                "tag": "$(Build.BuildId)",
+                "latestTag": "latest",
+                "sourceVersion": "$(Build.SourceVersion)",
+                "buildId": "$(Build.BuildId)"
+              }
+              EOF
+              cat "$(Build.ArtifactStagingDirectory)/release-manifest.json"
+            displayName: Create container release manifest
           - task: PublishPipelineArtifact@1
             displayName: Publish container SBOM
             condition: succeededOrFailed()
@@ -169,6 +182,12 @@ stages:
               tags: |
                 $(Build.BuildId)
                 latest
+          - task: PublishPipelineArtifact@1
+            displayName: Publish CI release package
+            condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)
+              artifact: container-release
 
   - stage: AwsIdentityCheck
     # Verify the existing AWS service connection with a read-only STS identity
@@ -227,6 +246,73 @@ stages:
                   echo "GitHub already matches the source; nothing to push."
                 fi
 
+# =====================
+# CONTINUOUS DELIVERY - RELEASE RECORDS
+# =====================
+  - stage: Release_QA
+    # Record the validated container release in the QA environment. This
+    # gate-only deployment does not provision or update a runtime target.
+    dependsOn: DevOpsExpertStageC
+    condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
+    displayName: CD Release - QA
+    jobs:
+      - deployment: RecordQARelease
+        displayName: Record container release in QA
+        environment: QA
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: container-release
+                - bash: |
+                    set -euo pipefail
+                    cat "$(Pipeline.Workspace)/container-release/release-manifest.json"
+                    echo "QA release record only; no runtime deployment target is configured."
+                  displayName: Verify package and record QA release
+
+  - stage: Release_Test
+    # Record the same immutable build package in Test after the QA gate.
+    dependsOn: Release_QA
+    condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
+    displayName: CD Release - Test
+    jobs:
+      - deployment: RecordTestRelease
+        displayName: Record container release in Test
+        environment: Test
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: container-release
+                - bash: |
+                    set -euo pipefail
+                    cat "$(Pipeline.Workspace)/container-release/release-manifest.json"
+                    echo "Test release record only; no runtime deployment target is configured."
+                  displayName: Verify package and record Test release
+
+  - stage: Release_PRD
+    # Record the same immutable build package in PRD after QA and Test.
+    dependsOn: Release_Test
+    condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
+    displayName: CD Release - PRD
+    jobs:
+      - deployment: RecordPRDRelease
+        displayName: Record container release in PRD
+        environment: PRD
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: container-release
+                - bash: |
+                    set -euo pipefail
+                    cat "$(Pipeline.Workspace)/container-release/release-manifest.json"
+                    echo "PRD release record only; no runtime deployment target is configured."
+                  displayName: Verify package and record PRD release
+
   - stage: Finalize
     # Always run a final reporting job; inspect earlier stage results in the
     # Azure Pipelines run summary because this job's status is not the build's.
@@ -236,6 +322,9 @@ stages:
       - DevOpsExpertStageC
       - AwsIdentityCheck
       - DevOpsExpertStageG
+      - Release_QA
+      - Release_Test
+      - Release_PRD
     condition: always()
     jobs:
       - job: ReportStatus
