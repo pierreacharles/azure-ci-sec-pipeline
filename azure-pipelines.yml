@@ -373,7 +373,7 @@ stages:
     # deployment does not provision or update a runtime target.
     dependsOn: PublishContainer
     condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
-    displayName: CD Release - QA
+    displayName: 'CD: Release - QA'
     jobs:
       - deployment: RecordQARelease
         displayName: Record container release in QA
@@ -394,7 +394,7 @@ stages:
     # Record the same immutable build package in Test after the QA gate.
     dependsOn: Release_QA
     condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
-    displayName: CD Release - Test
+    displayName: 'CD: Release - Test'
     jobs:
       - deployment: RecordTestRelease
         displayName: Record container release in Test
@@ -415,7 +415,7 @@ stages:
     # Record the same immutable build package in PRD after QA and Test.
     dependsOn: Release_Test
     condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
-    displayName: CD Release - PRD
+    displayName: 'CD: Release - PRD'
     jobs:
       - deployment: RecordPRDRelease
         displayName: Record container release in PRD
