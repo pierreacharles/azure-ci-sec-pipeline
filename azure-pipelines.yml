@@ -26,6 +26,9 @@ variables:
   gcpServiceConnection: 'GCP-Terraform-ADO-Service-Connection'
   gcpProjectId: 'high-electron-275217'
 
+# =====================
+# GITHUB ACTIONS - TRIGGER
+# =====================
 resources:
   repositories:
   - repository: githubTarget
