@@ -20,6 +20,7 @@ variables:
   dockerHubRepository: 'pierrecharles441/agaprj-docker-repository-deploys'
   dockerHubServiceConnection: 'login.docker.com_pierrecharles441'
   enableDockerPush: 'true'
+  snykServiceConnection: 'Snyk-Security-Scan-ADO-Service-Connection'
   awsServiceConnection: 'aws-prod-oidc'
   awsRegion: 'us-east-1'
 
@@ -68,6 +69,7 @@ stages:
             displayName: Compile and execute application scripts
 
 # =====================
+# =====================
 # DEPENDENCY SCAN STAGE
 # =====================
   - stage: DevOpsExpertStageB
@@ -99,10 +101,10 @@ stages:
 # =====================
   - stage: DevOpsExpertStageC
     # Build and smoke-test the non-root image, publish its SBOM, fail on
-    # HIGH/CRITICAL findings, and optionally push images to Docker Hub.
+    # HIGH/CRITICAL findings, and package the image for Snyk scanning.
     dependsOn:
       - DevOpsExpertStageB
-    displayName: 'CI: Build, test, scan, and publish artifact and registry image'
+    displayName: 'CI: Build, test, scan, and package container'
     jobs:
       - job: BuildAndTestImage
         displayName: Build and verify hardened container
@@ -165,6 +167,9 @@ stages:
               }
               EOF
               cat "$(Build.ArtifactStagingDirectory)/release-manifest.json"
+              docker save \
+                --output "$(Build.ArtifactStagingDirectory)/image.tar" \
+                "$(dockerImageName):$(Build.BuildId)"
             displayName: Create container release manifest
           - task: PublishPipelineArtifact@1
             displayName: Publish container SBOM
@@ -172,9 +177,79 @@ stages:
             inputs:
               targetPath: $(Build.ArtifactStagingDirectory)/container-sbom.cdx.json
               artifact: container-sbom
+          - task: PublishPipelineArtifact@1
+            displayName: Publish container image and release metadata for scanning
+            condition: succeeded()
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)
+              artifact: container-release
+
+# =====================
+# SNYK CONTAINER SECURITY SCAN STAGE
+# =====================
+  - stage: SnykSecurityScan
+    # Scan the exact built image before it is pushed to Docker Hub or promoted
+    # through release environments; fail on HIGH or CRITICAL vulnerabilities.
+    dependsOn: DevOpsExpertStageC
+    displayName: 'CI: Snyk container security scan'
+    jobs:
+      - job: SnykContainerAnalysis
+        displayName: Scan built image with Snyk Container
+        steps:
+          - checkout: self
+            path: ado-source
+          - checkout: githubTarget
+            path: github-source
+          - download: current
+            artifact: container-release
+          - bash: |
+              set -euo pipefail
+              image_archive="$(Pipeline.Workspace)/container-release/image.tar"
+              test -s "$image_archive"
+              docker load --input "$image_archive"
+              source_dir="$(Pipeline.Workspace)/ado-source"
+              if [ "$(Build.Reason)" = "ResourceTrigger" ]; then
+                source_dir="$(Pipeline.Workspace)/github-source"
+              fi
+              echo "##vso[task.setvariable variable=snykDockerfilePath]$source_dir/Dockerfile"
+            displayName: Load exact CI image for Snyk analysis
+          - task: SnykSecurityScan@1
+            displayName: Scan container image for vulnerabilities
+            inputs:
+              serviceConnectionEndpoint: $(snykServiceConnection)
+              testType: container
+              dockerImageName: $(dockerImageName):$(Build.BuildId)
+              dockerfilePath: $(snykDockerfilePath)
+              severityThreshold: high
+              failOnIssues: true
+              monitorWhen: never
+
+  - stage: PublishContainer
+    # Publish only the image that passed both Trivy and Snyk security gates.
+    dependsOn: SnykSecurityScan
+    condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
+    displayName: 'CI: Publish scanned image to Docker Hub'
+    jobs:
+      - job: PushScannedImage
+        displayName: Push versioned and latest image tags
+        steps:
+          - download: current
+            artifact: container-release
           - task: Docker@2
-            displayName: Push versioned and latest images to Docker Hub
-            condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
+            displayName: Authenticate to Docker Hub
+            inputs:
+              command: login
+              containerRegistry: $(dockerHubServiceConnection)
+          - bash: |
+              set -euo pipefail
+              docker load \
+                --input "$(Pipeline.Workspace)/container-release/image.tar"
+              docker tag \
+                "$(dockerImageName):$(Build.BuildId)" \
+                "$(dockerImageName):latest"
+            displayName: Load and tag Snyk-approved image
+          - task: Docker@2
+            displayName: Push scanned image tags to Docker Hub
             inputs:
               command: push
               containerRegistry: $(dockerHubServiceConnection)
@@ -182,12 +257,6 @@ stages:
               tags: |
                 $(Build.BuildId)
                 latest
-          - task: PublishPipelineArtifact@1
-            displayName: Publish CI release package
-            condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
-            inputs:
-              targetPath: $(Build.ArtifactStagingDirectory)
-              artifact: container-release
 
   - stage: AwsIdentityCheck
     # Verify the existing AWS service connection with a read-only STS identity
@@ -250,9 +319,9 @@ stages:
 # CONTINUOUS DELIVERY - RELEASE RECORDS
 # =====================
   - stage: Release_QA
-    # Record the validated container release in the QA environment. This
-    # gate-only deployment does not provision or update a runtime target.
-    dependsOn: DevOpsExpertStageC
+    # Record the security-approved container release in QA. This gate-only
+    # deployment does not provision or update a runtime target.
+    dependsOn: PublishContainer
     condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
     displayName: CD Release - QA
     jobs:
@@ -320,6 +389,8 @@ stages:
       - DevOpsExpertStageA
       - DevOpsExpertStageB
       - DevOpsExpertStageC
+      - SnykSecurityScan
+      - PublishContainer
       - AwsIdentityCheck
       - DevOpsExpertStageG
       - Release_QA
