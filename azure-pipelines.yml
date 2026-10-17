@@ -334,7 +334,7 @@ stages:
             persistCredentials: true
             path: github-target
           - task: Bash@3
-            displayName: Pushing Source from GitHub New Repository...
+            displayName: Pushing Source to GitHub Repository
             inputs:
               targetType: inline
               script: |
@@ -347,7 +347,20 @@ stages:
                 git add .
                 if ! git diff --cached --quiet; then
                   git commit -m "Sync from Azure DevOps build $(Build.BuildId)"
-                  git push origin HEAD:refs/heads/main
+                  push_attempt=1
+                  max_push_attempts=3
+                  while [ "$push_attempt" -le "$max_push_attempts" ]; do
+                    if git push origin HEAD:refs/heads/main; then
+                      break
+                    fi
+                    if [ "$push_attempt" -eq "$max_push_attempts" ]; then
+                      echo "GitHub push was rejected after $max_push_attempts attempts." >&2
+                      exit 1
+                    fi
+                    echo "GitHub main advanced during the push; rebasing on the latest remote main before retrying."
+                    git pull --rebase origin main
+                    push_attempt=$((push_attempt + 1))
+                  done
                 else
                   echo "GitHub already matches the source; nothing to push."
                 fi
