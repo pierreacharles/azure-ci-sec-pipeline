@@ -1,0 +1,16 @@
+# Author Name: Pierre A. Charles
+# Date: Thursday 06-June-2025
+# Subject: Azure CI pipeline trigger from 1st to 2nd pipeline development.
+name: FirstPipeline # AGAPrjCICT-Pipeline
+
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+  steps:
+  - script: echo AGAPrjCICT-Pipeline is set to run first!
+  - template: azure-pipelines-trigger.yml
+  
+

@@ -1,0 +1,15 @@
+# AUTHOR NAME: Pierre-Antoine Charles
+# DATE: Friday 2-Oct-2026
+# SUBJECT: GitHub trigger for Azure CI security pipeline containing Docker and Kubernetes CD development.
+# ==========================================================================================
+
+# =====================
+# GITHUB-TRIGGER FOR AZ-CI-SEC-PIPELINE
+# =====================
+
+trigger: none
+resources:
+  pipelines:
+    - pipeline: AGA Prj Repo 1
+      source: 'AGA Prj Repo 2'
+      trigger: true

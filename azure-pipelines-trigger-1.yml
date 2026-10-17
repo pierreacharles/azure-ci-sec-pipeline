@@ -1,0 +1,27 @@
+# Author Name: Pierre A. Charles
+# Date: Thursday 06-June-2025
+# Subject: Azure CI pipeline trigger from 1st to 2nd pipeline development.
+name: SecondPipeline # AGAPrjCD-Pipeline
+
+trigger: none # Triggered only if First-Pipeline succeeds
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+# This pipeline will be triggered by another pipeline
+resources:
+ pipelines:
+  - pipeline: AGA Prj Repo 1 # Name of the pipeline resource
+    source: 'AGA Prj Repo 2' # Name of the pipeline referenced by the pipeline resource
+    project: AGA Assurance Collective Prj 1 # Required only if source pipeline is in another project 
+    trigger: true # Enable type trigger
+    branches:
+      - master
+
+ steps:
+ - script: echo (This pipeline) AGAPrjCD-Pipeline is set to be triggered after (First pipeline) AGAPrjCICT-Pipeline.
+ - script: echo Triggered by This Source Pipeline '${{ resources.pipeline.AGA Prj Repo 2.pipelineName }}'!
+   displayName: 'Run a one-line script'
+
+ - download: AGA Prj Repo 1
+   artifact: AGA Prj Artifact 1

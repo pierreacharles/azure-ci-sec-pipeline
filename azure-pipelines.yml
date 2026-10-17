@@ -1,0 +1,246 @@
+# AUTHOR NAME: Pierre-Antoine Charles
+# DATE: Saturday 24-May-2025
+# SUBJECT: Azure CI security pipeline for Docker and Kubernetes CD development.
+
+# YAML is neither imperative nor declarative; it is a data-serialization language like JSON.
+# ==========================================================================================
+name: AGAPrjCICT-Pipeline
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  pythonVersion: '3.11'
+  dockerImageName: 'pierrecharles441/agaprj-docker-repository-deploys'
+  dockerHubRepository: 'pierrecharles441/agaprj-docker-repository-deploys'
+  dockerHubServiceConnection: 'login.docker.com_pierrecharles441'
+  enableDockerPush: 'true'
+  awsServiceConnection: 'aws-prod-oidc'
+  awsRegion: 'us-east-1'
+
+resources:
+  repositories:
+  - repository: githubTarget
+    type: github
+    name: pierreacharles/azure-ci-sec-pipeline
+    endpoint: pierreacharles
+    ref: refs/heads/main
+    trigger:
+      branches:
+        include:
+          - main
+
+# =====================
+# BUILD STAGE
+# =====================
+stages:
+  - stage: DevOpsExpertStageA
+    # Compile and run both Python entry points from ADO, or from GitHub when
+    # this run was started by the GitHub repository resource trigger.
+    displayName: Validate and test Python sources
+    jobs:
+      - job: PythonChecks
+        displayName: Compile and run Python entry points
+        steps:
+          - checkout: self
+            path: ado-source
+          - checkout: githubTarget
+            path: github-source
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+            displayName: Select Python $(pythonVersion)
+          - script: |
+              set -euo pipefail
+              source_dir="$(Pipeline.Workspace)/ado-source"
+              if [ "$(Build.Reason)" = "ResourceTrigger" ]; then
+                source_dir="$(Pipeline.Workspace)/github-source"
+              fi
+              cd "$source_dir"
+              python -m compileall -q main.py src/ado_package/main.py
+              python main.py
+              python src/ado_package/main.py
+            displayName: Compile and execute application scripts
+
+# =====================
+# DEPENDENCY SCAN STAGE
+# =====================
+  - stage: DevOpsExpertStageB
+    # Ensure the selected checkout has all application and Docker inputs before
+    # the more expensive image build and security scan.
+    dependsOn: DevOpsExpertStageA
+    displayName: Validate Docker build context
+    jobs:
+      - job: DockerContext
+        displayName: Check required application and container files
+        steps:
+          - checkout: self
+            path: ado-source
+          - checkout: githubTarget
+            path: github-source
+          - bash: |
+              set -euo pipefail
+              source_dir="$(Pipeline.Workspace)/ado-source"
+              if [ "$(Build.Reason)" = "ResourceTrigger" ]; then
+                source_dir="$(Pipeline.Workspace)/github-source"
+              fi
+              test -s "$source_dir/main.py"
+              test -s "$source_dir/src/ado_package/main.py"
+              test -s "$source_dir/Dockerfile"
+            displayName: Verify build inputs exist
+
+# =====================
+# BUILD CONTAINER AND EXECTUTE PYTHON STAGE
+# =====================
+  - stage: DevOpsExpertStageC
+    # Build and smoke-test the non-root image, publish its SBOM, fail on
+    # HIGH/CRITICAL findings, and optionally push images to Docker Hub.
+    dependsOn:
+      - DevOpsExpertStageB
+    displayName: Build, test, scan, and optionally publish Docker image
+    jobs:
+      - job: BuildAndTestImage
+        displayName: Build and verify hardened container
+        steps:
+          - checkout: self
+            path: ado-source
+          - checkout: githubTarget
+            path: github-source
+          - bash: |
+              set -euo pipefail
+              source_dir="$(Pipeline.Workspace)/ado-source"
+              if [ "$(Build.Reason)" = "ResourceTrigger" ]; then
+                source_dir="$(Pipeline.Workspace)/github-source"
+              fi
+              DOCKER_BUILDKIT=1 docker build \
+                --pull \
+                --build-arg BUILDKIT_INLINE_CACHE=1 \
+                --build-arg BUILD_VERSION="$(Build.BuildId)" \
+                --file "$source_dir/Dockerfile" \
+                --tag "$(dockerImageName):$(Build.BuildId)" \
+                --tag "$(dockerImageName):latest" \
+                "$source_dir"
+            displayName: Build multi-stage application image
+          - bash: |
+              set -euo pipefail
+              image="$(dockerImageName):$(Build.BuildId)"
+              output="$(docker run --rm "$image")"
+              printf '%s\n' "$output"
+              grep -Fq "Python script started successfully in Azure Pipelines!" <<< "$output"
+              test "$(docker image inspect --format '{{.Config.User}}' "$image")" = "10001:10001"
+              docker image inspect --format 'Image={{.Id}} User={{.Config.User}} Size={{.Size}}' "$image"
+            displayName: Smoke-test output and non-root runtime
+          - bash: |
+              set -euo pipefail
+              mkdir -p "$(Build.ArtifactStagingDirectory)"
+              docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v "$(Build.ArtifactStagingDirectory):/report" \
+                aquasec/trivy:0.66.0 image \
+                --format cyclonedx \
+                --output /report/container-sbom.cdx.json \
+                "$(dockerImageName):$(Build.BuildId)"
+              docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                aquasec/trivy:0.66.0 image \
+                --exit-code 1 \
+                --severity HIGH,CRITICAL \
+                --ignore-unfixed \
+                "$(dockerImageName):$(Build.BuildId)"
+            displayName: Scan image for high and critical vulnerabilities
+          - task: PublishPipelineArtifact@1
+            displayName: Publish container SBOM
+            condition: succeededOrFailed()
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)/container-sbom.cdx.json
+              artifact: container-sbom
+          - task: Docker@2
+            displayName: Push versioned and latest images to Docker Hub
+            condition: and(succeeded(), eq(variables['enableDockerPush'], 'true'))
+            inputs:
+              command: push
+              containerRegistry: $(dockerHubServiceConnection)
+              repository: $(dockerHubRepository)
+              tags: |
+                $(Build.BuildId)
+                latest
+
+  - stage: AwsIdentityCheck
+    # Verify the existing AWS service connection with a read-only STS identity
+    # request even if the independent Docker Hub push fails.
+    dependsOn: DevOpsExpertStageC
+    displayName: Validate AWS service connection
+    condition: succeededOrFailed()
+    jobs:
+      - job: VerifyAwsIdentity
+        displayName: Verify configured AWS identity
+        steps:
+          - task: AWSCLI@1
+            displayName: Call AWS STS get-caller-identity
+            inputs:
+              awsCredentials: $(awsServiceConnection)
+              regionName: $(awsRegion)
+              awsCommand: sts
+              awsSubCommand: get-caller-identity
+
+# =====================
+# GITHUB SERVICE CONNECTION STAGE
+# =====================
+  - stage: DevOpsExpertStageG
+    # Copy ADO main to GitHub main and push only when files changed. Resource-
+    # triggered runs skip this stage so the sync cannot trigger itself forever.
+    dependsOn:
+      - DevOpsExpertStageC
+      - AwsIdentityCheck
+    condition: and(not(failed()), not(canceled()), ne(variables['Build.Reason'], 'ResourceTrigger'), eq(variables['Build.SourceBranch'], 'refs/heads/main'), in(dependencies.AwsIdentityCheck.result, 'Succeeded', 'Skipped'))
+    displayName: Push validated source to GitHub
+    jobs:
+      - job: jobG
+        displayName: Commit and push source changes
+        steps:
+          - checkout: self
+            path: ado-source
+          - checkout: githubTarget
+            persistCredentials: true
+            path: github-target
+          - task: Bash@3
+            displayName: Pushing Source from GitHub New Repository...
+            inputs:
+              targetType: inline
+              script: |
+                set -euo pipefail
+                echo "Sourcing ADO Directory:"
+                cd $(Pipeline.Workspace)/github-target
+                git config user.email "azure-pipelines@users.noreply.github.com"
+                git config user.name "Azure Pipelines"
+                rsync -a --exclude='.git/' "$(Pipeline.Workspace)/ado-source/" .
+                git add .
+                if ! git diff --cached --quiet; then
+                  git commit -m "Sync from Azure DevOps build $(Build.BuildId)"
+                  git push origin HEAD:refs/heads/main
+                else
+                  echo "GitHub already matches the source; nothing to push."
+                fi
+
+  - stage: Finalize
+    # Always run a final reporting job; inspect earlier stage results in the
+    # Azure Pipelines run summary because this job's status is not the build's.
+    dependsOn:
+      - DevOpsExpertStageA
+      - DevOpsExpertStageB
+      - DevOpsExpertStageC
+      - AwsIdentityCheck
+      - DevOpsExpertStageG
+    condition: always()
+    jobs:
+      - job: ReportStatus
+        steps:
+          - bash: |
+              echo "Final reporting job: $(Agent.JobStatus)"
+              echo "Pipeline stage results are available in the Azure Pipelines run summary."
+            displayName: Report pipeline results

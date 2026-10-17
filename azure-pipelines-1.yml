@@ -1,0 +1,134 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  appName: 'myapp'
+  dockerRegistryServiceConnection: 'acr-service-connection'
+  imageRepository: 'myapp'
+  dockerfilePath: 'Dockerfile'
+  imageTag: '$(Build.BuildId)'
+
+stages:
+
+# =====================
+# BUILD STAGE
+# =====================
+- stage: Build
+  displayName: 'Build Application'
+  jobs:
+  - job: BuildJob
+    steps:
+    - checkout: self
+
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+
+    - script: |
+        npm install
+        npm run build
+      displayName: 'Install Dependencies & Build'
+
+# =====================
+# TEST STAGE
+# =====================
+- stage: Test
+  displayName: 'Run Tests'
+  dependsOn: Build
+  jobs:
+  - job: TestJob
+    steps:
+    - script: |
+        npm test -- --coverage
+      displayName: 'Execute Unit Tests'
+
+# =====================
+# SAST STAGE
+# =====================
+- stage: Security_SAST
+  displayName: 'Static Security Scan'
+  dependsOn: Test
+  jobs:
+  - job: SASTJob
+    steps:
+    - script: |
+        npm install -g semgrep
+        semgrep scan --config auto .
+      displayName: 'Run Semgrep SAST'
+
+# =====================
+# DEPENDENCY SCAN
+# =====================
+- stage: Dependency_Scan
+  displayName: 'Dependency Vulnerability Scan'
+  dependsOn: Security_SAST
+  jobs:
+  - job: DependencyScanJob
+    steps:
+    - script: |
+        npm audit --audit-level=high
+      displayName: 'NPM Dependency Scan'
+
+# =====================
+# CONTAINER BUILD
+# =====================
+- stage: Build_Container
+  displayName: 'Docker Build'
+  dependsOn: Dependency_Scan
+  jobs:
+  - job: DockerBuildJob
+    steps:
+    - task: Docker@2
+      displayName: 'Build and Push Docker Image'
+      inputs:
+        containerRegistry: $(dockerRegistryServiceConnection)
+        repository: $(imageRepository)
+        command: buildAndPush
+        Dockerfile: $(dockerfilePath)
+        tags: |
+          $(imageTag)
+
+# =====================
+# CONTAINER SECURITY SCAN
+# =====================
+- stage: Container_Scan
+  displayName: 'Container Image Scan'
+  dependsOn: Build_Container
+  jobs:
+  - job: TrivyScan
+    steps:
+    - script: |
+        docker pull $(imageRepository):$(imageTag)
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy image \
+          $(imageRepository):$(imageTag)
+      displayName: 'Run Trivy Scan'
+
+# =====================
+# DEPLOYMENT
+# =====================
+- stage: Deploy
+  displayName: 'Deploy to Kubernetes'
+  dependsOn: Container_Scan
+  condition: succeeded()
+  jobs:
+  - deployment: DeployApp
+    environment: production
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: KubernetesManifest@1
+            inputs:
+              action: deploy
+              manifests: |
+                k8s/deployment.yaml
+                k8s/service.yaml
+              containers: |
+                $(imageRepository):$(imageTag)
