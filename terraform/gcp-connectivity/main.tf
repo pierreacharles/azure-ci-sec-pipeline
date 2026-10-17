@@ -18,11 +18,10 @@ provider "google" {
   project = var.project_id
 }
 
-data "google_project" "connectivity" {
-  project_id = var.project_id
+data "google_client_config" "connectivity" {
 }
 
 output "connected_project_id" {
-  description = "Project ID returned by the Google Cloud Resource Manager API."
-  value       = data.google_project.connectivity.project_id
+  description = "Project configured for the authenticated Google provider."
+  value       = data.google_client_config.connectivity.project
 }

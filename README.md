@@ -47,7 +47,7 @@ The container runs the `src/ado_package/main.py` entry point as the unprivileged
 Azure Repos `main` changes start the pipeline. Changes to the GitHub mirror's `main` also trigger validation; those resource-triggered runs do not sync back to GitHub. The pipeline:
 
 1. Compiles and runs both Python entry points, then validates the Docker build context.
-2. Independently runs a Terraform-based, read-only Google Cloud connectivity check. It authenticates through `GCP-Terraform-ADO-Service-Connection` and reads project metadata from `high-electron-275217`; it does not create or change cloud resources. The identity needs permission to read project metadata (`resourcemanager.projects.get`).
+2. Independently runs a Terraform-based Google Cloud connectivity check. It authenticates the Google provider through `GCP-Terraform-ADO-Service-Connection` for project `high-electron-275217`; it does not call project APIs or create or change cloud resources.
 3. Builds the image, smoke-tests its output and non-root runtime, and generates a CycloneDX SBOM with Trivy.
 4. Uses Trivy and Snyk Container security gates. Trivy blocks High and Critical findings that have a fix available; Snyk analyzes the exact CI-built image and uses a High severity threshold.
 5. Publishes the CycloneDX SBOM and a `container-release` artifact containing the image archive and release manifest. Only an image that passes the security gates is pushed to Docker Hub, tagged with the Azure build ID and `latest`.

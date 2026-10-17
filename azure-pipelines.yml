@@ -79,7 +79,7 @@ stages:
     displayName: 'CI: Test GCP connectivity with Terraform'
     jobs:
       - job: VerifyGcpConnectivity
-        displayName: Read GCP project metadata
+        displayName: Verify GCP service connection authentication
         steps:
           - checkout: self
             path: ado-source
@@ -95,7 +95,7 @@ stages:
                 -no-color
             displayName: Initialize read-only connectivity configuration
           - task: TerraformTaskV4@4
-            displayName: Verify GCP authentication and project API access
+            displayName: Verify GCP authentication with Terraform
             inputs:
               provider: gcp
               command: plan
