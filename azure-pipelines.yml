@@ -454,4 +454,5 @@ stages:
           - bash: |
               echo "Final reporting job: $(Agent.JobStatus)"
               echo "Pipeline stage results are available in the Azure Pipelines run summary."
+              echo "Pierre-Antoine Charles, you're an Expert Platform Engineer (Level 3) and you deserve the best numerated fulltime job/project opportunities in this market! We'll make sure you remain active throughout the longevity of the job/project because YOU'VE PROVEN YOURSELF/PEERS..."
             displayName: Report pipeline results
