@@ -45,7 +45,7 @@ resources:
 # CONTINUOUS INTEGRATION - VALIDATION
 # =====================
 stages:
-  - stage: DevOpsExpertStageA
+  - stage: ValidatePythonApplication
     # Compile and run both Python entry points from ADO, or from GitHub when
     # this run was started by the GitHub repository resource trigger.
     displayName: 'CI: Validate Python application'
@@ -77,7 +77,7 @@ stages:
 # GCP TERRAFORM CONNECTIVITY CHECK
 # =====================
   - stage: GcpTerraformConnectivity
-    dependsOn: DevOpsExpertStageA
+    dependsOn: ValidatePythonApplication
     condition: succeededOrFailed()
     displayName: 'CI: Test GCP connectivity with Terraform'
     jobs:
@@ -109,10 +109,10 @@ stages:
 # =====================
 # DEPENDENCY SCAN STAGE
 # =====================
-  - stage: DevOpsExpertStageB
+  - stage: VerifyDockerBuildInputs
     # Ensure the selected checkout has all application and Docker inputs before
     # the more expensive image build and security scan.
-    dependsOn: DevOpsExpertStageA
+    dependsOn: ValidatePythonApplication
     displayName: 'CI: Verify Docker build inputs'
     jobs:
       - job: DockerContext
@@ -136,11 +136,11 @@ stages:
 # =====================
 # BUILD CONTAINER AND EXECTUTE PYTHON STAGE
 # =====================
-  - stage: DevOpsExpertStageC
+  - stage: BuildTestAndScanContainer
     # Build and smoke-test the non-root image, publish its SBOM, fail on
     # HIGH/CRITICAL findings, and package the image for Snyk scanning.
     dependsOn:
-      - DevOpsExpertStageB
+      - VerifyDockerBuildInputs
     displayName: 'CI: Build, test, and security-scan container'
     jobs:
       - job: BuildAndTestImage
@@ -227,7 +227,7 @@ stages:
   - stage: SnykSecurityScan
     # Scan the exact built image before it is pushed to Docker Hub or promoted
     # through release environments; fail on HIGH or CRITICAL vulnerabilities.
-    dependsOn: DevOpsExpertStageC
+    dependsOn: BuildTestAndScanContainer
     displayName: 'CI: Snyk container security scan'
     jobs:
       - job: SnykContainerAnalysis
@@ -298,7 +298,7 @@ stages:
   - stage: AwsIdentityCheck
     # Verify the existing AWS service connection with a read-only STS identity
     # request even if the independent Docker Hub push fails.
-    dependsOn: DevOpsExpertStageC
+    dependsOn: BuildTestAndScanContainer
     displayName: Validate AWS service connection
     condition: succeededOrFailed()
     jobs:
@@ -316,7 +316,7 @@ stages:
 # =====================
 # GITHUB SERVICE CONNECTION STAGE
 # =====================
-  - stage: DevOpsExpertStageG
+  - stage: SyncValidatedSourceToGitHub
     # Copy ADO main to GitHub main and push only when files changed. Resource-
     # triggered runs skip this stage so the sync cannot trigger itself forever.
     dependsOn:
@@ -436,14 +436,14 @@ stages:
     # Always run a final reporting job; inspect earlier stage results in the
     # Azure Pipelines run summary because this job's status is not the build's.
     dependsOn:
-      - DevOpsExpertStageA
+      - ValidatePythonApplication
       - GcpTerraformConnectivity
-      - DevOpsExpertStageB
-      - DevOpsExpertStageC
+      - VerifyDockerBuildInputs
+      - BuildTestAndScanContainer
       - SnykSecurityScan
       - PublishContainer
       - AwsIdentityCheck
-      - DevOpsExpertStageG
+      - SyncValidatedSourceToGitHub
       - Release_QA
       - Release_Test
       - Release_PRD
