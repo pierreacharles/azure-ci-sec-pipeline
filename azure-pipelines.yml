@@ -23,6 +23,8 @@ variables:
   snykServiceConnection: 'Snyk-Security-Scan-ADO-Service-Connection'
   awsServiceConnection: 'aws-prod-oidc'
   awsRegion: 'us-east-1'
+  gcpServiceConnection: 'GCP-Terraform-ADO-Service-Connection'
+  gcpProjectId: 'high-electron-275217'
 
 resources:
   repositories:
@@ -67,6 +69,39 @@ stages:
               python main.py
               python src/ado_package/main.py
             displayName: Compile and execute application scripts
+
+# =====================
+# GCP TERRAFORM CONNECTIVITY CHECK
+# =====================
+  - stage: GcpTerraformConnectivity
+    dependsOn: DevOpsExpertStageA
+    condition: succeededOrFailed()
+    displayName: 'CI: Test GCP connectivity with Terraform'
+    jobs:
+      - job: VerifyGcpConnectivity
+        displayName: Read GCP project metadata
+        steps:
+          - checkout: self
+            path: ado-source
+          - task: TerraformInstaller@1
+            displayName: Install Terraform
+            inputs:
+              terraformVersion: '1.9.8'
+          - bash: |
+              set -euo pipefail
+              terraform -chdir="$(Pipeline.Workspace)/ado-source/terraform/gcp-connectivity" init \
+                -backend=false \
+                -input=false \
+                -no-color
+            displayName: Initialize read-only connectivity configuration
+          - task: TerraformTaskV4@4
+            displayName: Verify GCP authentication and project API access
+            inputs:
+              provider: gcp
+              command: plan
+              workingDirectory: $(Pipeline.Workspace)/ado-source/terraform/gcp-connectivity
+              commandOptions: '-input=false -no-color -var=project_id=$(gcpProjectId)'
+              environmentServiceNameGCP: $(gcpServiceConnection)
 
 # =====================
 # DEPENDENCY SCAN STAGE
@@ -386,6 +421,7 @@ stages:
     # Azure Pipelines run summary because this job's status is not the build's.
     dependsOn:
       - DevOpsExpertStageA
+      - GcpTerraformConnectivity
       - DevOpsExpertStageB
       - DevOpsExpertStageC
       - SnykSecurityScan
