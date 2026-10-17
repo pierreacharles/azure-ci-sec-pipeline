@@ -283,9 +283,9 @@ stages:
     # Copy ADO main to GitHub main and push only when files changed. Resource-
     # triggered runs skip this stage so the sync cannot trigger itself forever.
     dependsOn:
-      - DevOpsExpertStageC
+      - PublishContainer
       - AwsIdentityCheck
-    condition: and(not(failed()), not(canceled()), ne(variables['Build.Reason'], 'ResourceTrigger'), eq(variables['Build.SourceBranch'], 'refs/heads/main'), in(dependencies.AwsIdentityCheck.result, 'Succeeded', 'Skipped'))
+    condition: and(not(failed()), not(canceled()), ne(variables['Build.Reason'], 'ResourceTrigger'), eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(dependencies.PublishContainer.result, 'Succeeded'), in(dependencies.AwsIdentityCheck.result, 'Succeeded', 'Skipped'))
     displayName: Push validated source to GitHub
     jobs:
       - job: jobG

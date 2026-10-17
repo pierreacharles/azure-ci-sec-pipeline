@@ -1,10 +1,10 @@
-FROM python:3.11-slim-trixie AS build
+FROM python:3.11-alpine AS build
 
 WORKDIR /app
 COPY src/ado_package/main.py ./main.py
 RUN python -m compileall -q main.py
 
-FROM python:3.11-slim-trixie AS runtime
+FROM python:3.11-alpine AS runtime
 
 ARG BUILD_VERSION=dev
 LABEL org.opencontainers.image.title="AGA ADO Package" \
@@ -13,9 +13,10 @@ LABEL org.opencontainers.image.title="AGA ADO Package" \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN python -m pip install --no-cache-dir --upgrade setuptools \
-    && groupadd --system --gid 10001 app \
-    && useradd --system --uid 10001 --gid app --home-dir /app app
+RUN apk upgrade --no-cache \
+    && python -m pip install --no-cache-dir --upgrade setuptools \
+    && addgroup -S -g 10001 app \
+    && adduser -S -D -H -u 10001 -G app app
 WORKDIR /app
 COPY --from=build --chown=10001:10001 /app/main.py ./main.py
 
