@@ -69,7 +69,6 @@ stages:
             displayName: Compile and execute application scripts
 
 # =====================
-# =====================
 # DEPENDENCY SCAN STAGE
 # =====================
   - stage: DevOpsExpertStageB
