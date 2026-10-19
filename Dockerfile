@@ -1,3 +1,12 @@
+# AUTHOR NAME: Pierre-Antoine Charles
+# DATE: Friday 2-Oct-2026
+# SUBJECT: GitHub trigger for Azure CI security pipeline containing Docker and Kubernetes CD development.
+# ==========================================================================================
+
+# =====================
+# DOCKERFILE-BUILD
+# =====================
+
 FROM python:3.11-alpine AS build
 
 WORKDIR /app
