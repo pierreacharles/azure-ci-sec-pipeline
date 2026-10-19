@@ -1,6 +1,11 @@
-# Author Name: Pierre A. Charles
-# Date: Thursday 06-June-2025
-# Subject: Azure CI pipeline trigger from 1st to 2nd pipeline development.
+# AUTHOR NAME: Pierre-Antoine Charles
+# DATE: Friday 2-Oct-2026
+# SUBJECT: Azure CI pipeline trigger from 1st to 2nd pipeline development.
+# ==========================================================================================
+
+# =====================
+# ADO BUILD TRIGGER FROM 1ST TO ADO RELEASE 2ND 
+# =====================
 name: FirstPipeline # AGAPrjCICT-Pipeline
 
 trigger:
